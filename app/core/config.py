@@ -28,9 +28,10 @@ class Settings(BaseSettings):
     NGINX_PORT: int = 8088
 
     # 【最终修正】更新所有已知的模型列表
-    DEFAULT_MODEL: str = "claude-sonnet-4.5"
+    DEFAULT_MODEL: str = "claude-opus-4.5"
     
     KNOWN_MODELS: List[str] = [
+        "claude-opus-4.5",
         "claude-sonnet-4.5",
         "gpt-5",
         "claude-opus-4.1",
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     
     # 【最终修正】根据您提供的信息，填充所有模型的真实后台名称
     MODEL_MAP: dict = {
+        "claude-opus-4.5": "apple-danish",
         "claude-sonnet-4.5": "anthropic-sonnet-alt",
         "gpt-5": "openai-turbo",
         "claude-opus-4.1": "anthropic-opus-4.1",
