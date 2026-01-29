@@ -16,9 +16,14 @@ provider = NotionAIProvider()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 启动时重新加载配置（从 JSON 文件）
+    logger.info("正在从配置文件重新加载配置...")
+    settings.reload_from_json()
+    
     logger.info(f"应用启动中... {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info("服务已配置为 Notion AI 代理模式。")
     logger.info(f"服务将在 http://localhost:{settings.NGINX_PORT} 上可用")
+    logger.info(f"使用 Cookie: {settings.NOTION_COOKIE[:20] if settings.NOTION_COOKIE else 'None'}...")
     yield
     logger.info("应用关闭。")
 

@@ -7,15 +7,25 @@ from typing import AsyncGenerator, Optional
 
 import cloudscraper
 from app.core.config import settings
+from app.utils.notifier import notify_token_expired
 
 logger = logging.getLogger(__name__)
+
+
+class TokenExpiredError(Exception):
+    """Token 失效异常"""
+    pass
 
 
 class NotionAIProvider:
     def __init__(self):
         self.scraper = cloudscraper.create_scraper()
         self.base_url = "https://www.notion.so"
-        self.headers = {
+        self._warmup_session()
+    
+    def _get_headers(self):
+        """动态获取请求头（使用最新的 settings）"""
+        return {
             "Content-Type": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json",
@@ -24,8 +34,10 @@ class NotionAIProvider:
             "x-notion-active-user-header": settings.NOTION_USER_ID,
             "x-notion-space-id": settings.NOTION_SPACE_ID,
         }
-        self.cookies = {"token_v2": settings.NOTION_COOKIE}
-        self._warmup_session()
+    
+    def _get_cookies(self):
+        """动态获取 Cookies（使用最新的 settings）"""
+        return {"token_v2": settings.NOTION_COOKIE}
 
     def _warmup_session(self):
         """预热会话，建立 Cloudflare 信任"""
@@ -33,8 +45,8 @@ class NotionAIProvider:
             logger.info("正在进行会话预热 (Session Warm-up)...")
             response = self.scraper.get(
                 self.base_url,
-                headers=self.headers,
-                cookies=self.cookies,
+                headers=self._get_headers(),
+                cookies=self._get_cookies(),
                 timeout=10,
             )
             response.raise_for_status()
@@ -79,19 +91,44 @@ class NotionAIProvider:
         try:
             response = self.scraper.post(
                 f"{self.base_url}/api/v3/saveTransactionsFanout",
-                headers=self.headers,
-                cookies=self.cookies,
+                headers=self._get_headers(),
+                cookies=self._get_cookies(),
                 json=payload,
                 timeout=30,
             )
+            
+            # 检测 Token 失效
+            if response.status_code in [401, 403]:
+                logger.error(f"Token 失效，状态码: {response.status_code}")
+                logger.error(f"响应内容: {response.text[:500]}")
+                notify_token_expired()
+                raise TokenExpiredError("Notion Token 已失效，请更新 token_v2")
+            
             response.raise_for_status()
             logger.info(f"对话线程创建成功, Thread ID: {thread_id}")
             return thread_id
+        except TokenExpiredError:
+            # 直接抛出 Token 失效错误
+            raise
         except Exception as e:
             logger.error(f"创建对话线程失败: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logger.error(f"HTTP 状态码: {e.response.status_code}")
                 logger.error(f"响应内容: {e.response.text[:500]}")
+                
+                # 检查是否是认证错误
+                if e.response.status_code in [401, 403]:
+                    logger.error("检测到认证失败，Token 可能已失效")
+                    notify_token_expired()
+                    raise TokenExpiredError("Notion Token 已失效，请更新 token_v2")
+            
+            # 检查错误消息中是否包含认证相关关键词
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ["401", "403", "unauthorized", "forbidden", "authentication"]):
+                logger.error("错误消息中检测到认证失败标识")
+                notify_token_expired()
+                raise TokenExpiredError("Notion Token 已失效，请更新 token_v2")
+            
             raise Exception("无法创建新的对话线程。")
 
     async def stream_chat(
@@ -134,12 +171,19 @@ class NotionAIProvider:
 
             response = self.scraper.post(
                 url,
-                headers=self.headers,
-                cookies=self.cookies,
+                headers=self._get_headers(),
+                cookies=self._get_cookies(),
                 json=payload,
                 stream=True,
                 timeout=120,
             )
+            
+            # 检测 Token 失效
+            if response.status_code in [401, 403]:
+                logger.error(f"Token 失效，状态码: {response.status_code}")
+                notify_token_expired()
+                raise TokenExpiredError("Notion Token 已失效，请更新 token_v2")
+            
             response.raise_for_status()
 
             full_content = ""
